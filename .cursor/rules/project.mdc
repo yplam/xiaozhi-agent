@@ -1,0 +1,14 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# Project description
+
+Implement a websocket ai agent server for esp32 smart speakers using LangGraph lib. This agent server has the following functions:
+
+- ASR
+- TTS
+- Connect to OpenAI api
+- A optinal configuable http proxy
