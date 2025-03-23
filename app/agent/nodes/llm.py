@@ -40,7 +40,9 @@ class LLMNode:
         http_client = None
         
         if PROXY_ENABLED and PROXY_URL:
-            http_client = Client(proxy=PROXY_URL)
+            # Updated proxy configuration for newer httpx versions
+            proxies = {"http://": PROXY_URL, "https://": PROXY_URL}
+            http_client = Client(proxies=proxies)
             logger.info(f"Using HTTP proxy for LLM: {PROXY_URL}")
         
         return ChatOpenAI(

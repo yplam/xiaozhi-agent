@@ -39,7 +39,9 @@ class TTSService:
         http_client = None
         
         if PROXY_ENABLED and PROXY_URL:
-            http_client = AsyncClient(proxy=PROXY_URL)
+            # Updated proxy configuration for newer httpx versions
+            proxies = {"http://": PROXY_URL, "https://": PROXY_URL}
+            http_client = AsyncClient(proxies=proxies)
             logger.info(f"Using HTTP proxy: {PROXY_URL}")
         
         return openai.AsyncOpenAI(

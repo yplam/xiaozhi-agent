@@ -36,7 +36,9 @@ class ASRService:
         http_client = None
         
         if PROXY_ENABLED and PROXY_URL:
-            http_client = AsyncClient(proxy=PROXY_URL)
+            # Updated proxy configuration for newer httpx versions
+            proxies = {"http://": PROXY_URL, "https://": PROXY_URL}
+            http_client = AsyncClient(proxies=proxies)
             logger.info(f"Using HTTP proxy: {PROXY_URL}")
         
         return openai.AsyncOpenAI(
@@ -138,7 +140,7 @@ class ASRService:
                 response = await self.openai_client.audio.transcriptions.create(
                     file=audio_file,
                     model="whisper-1",
-                    language="en",  # Can be parameterized
+                    language="zh",  # Default to Chinese
                 )
             
             return response.text

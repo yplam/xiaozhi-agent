@@ -42,6 +42,11 @@ class ClientSession:
         self.connected_at = asyncio.get_event_loop().time()
         self.last_activity_at = self.connected_at
         self.opus_codec = OpusCodec()
+        # Track audio parameters from client hello message
+        self.audio_format: Optional[str] = None
+        self.sample_rate: Optional[int] = None
+        self.channels: Optional[int] = None
+        self.frame_duration: Optional[int] = None
         
         logger.info(f"Session created: {self.id} for client: {client_id}, device: {device_id}")
     
@@ -70,6 +75,21 @@ class ClientSession:
         await self.websocket.close()
         logger.info(f"Session closed: {self.id}")
 
+    def set_audio_params(self, params: Dict[str, Any]) -> None:
+        """
+        Set audio parameters from client hello message.
+        
+        Args:
+            params: The audio parameters
+        """
+        self.audio_format = params.get("format", "opus")
+        self.sample_rate = params.get("sample_rate", 16000)
+        self.channels = params.get("channels", 1)
+        self.frame_duration = params.get("frame_duration", 20)
+        logger.info(f"Client {self.id} audio params: format={self.audio_format}, "
+                   f"sample_rate={self.sample_rate}, channels={self.channels}, "
+                   f"frame_duration={self.frame_duration}")
+
 
 class WebSocketServer:
     """WebSocket server for handling client connections."""
@@ -85,7 +105,7 @@ class WebSocketServer:
         self.host = host
         self.port = port
         self.sessions: Dict[str, ClientSession] = {}
-        self.connected_clients: Set[str] = set()
+        self.active_connections: Set[ClientSession] = set()
         
         # Callback functions
         self.on_audio_handler: Optional[Callable[[str, bytes], Union[None, Awaitable[None]]]] = None
@@ -220,7 +240,7 @@ class WebSocketServer:
             websocket: The WebSocket connection
         """
         # Get client information from headers
-        headers = websocket.request.headers
+        headers = websocket.request_headers
         
         # Validate protocol version
         protocol_version = headers.get("Protocol-Version")
@@ -252,6 +272,7 @@ class WebSocketServer:
         # Create client session
         session = ClientSession(websocket, client_id, device_id)
         self.sessions[session.id] = session
+        self.active_connections.add(session)
         
         try:
             # Wait for hello message
@@ -259,6 +280,7 @@ class WebSocketServer:
             if not hello_received:
                 await session.close()
                 del self.sessions[session.id]
+                self.active_connections.discard(session)
                 return
             
             # Send hello response
@@ -300,6 +322,10 @@ class WebSocketServer:
                     logger.warning(f"Invalid hello message: {message}")
                     return False
                 
+                # Extract audio parameters if present
+                if "audio_params" in message:
+                    session.set_audio_params(message["audio_params"])
+                
                 logger.info(f"Received hello message from {session.id}")
                 return True
             except json.JSONDecodeError:
@@ -335,6 +361,9 @@ class WebSocketServer:
                         session.listening = False
                         logger.info(f"Client {session.id} stopped listening")
                     
+                    elif ProtocolParser.is_wake_word_message(message):
+                        logger.info(f"Client {session.id} detected wake word: {message.get('text', '')}")
+                    
                     if self.on_message_handler:
                         await self.on_message_handler(session.id, message)
                 except ValueError as e:
@@ -349,6 +378,7 @@ class WebSocketServer:
         """
         if session.id in self.sessions:
             del self.sessions[session.id]
+            self.active_connections.discard(session)
             
             if self.on_disconnect_handler:
                 await self.on_disconnect_handler(session.id)
@@ -365,6 +395,15 @@ class WebSocketServer:
         Returns:
             True if the token is valid, False otherwise
         """
-        # This is a simple validation. In a real app, you might want to use JWT
-        # or another token validation method.
-        return token == AUTH_SECRET_KEY 
+        # Simple validation, in a real app might use JWT or another method
+        return token == AUTH_SECRET_KEY
+    
+    async def shutdown(self) -> None:
+        """Gracefully shut down the server by closing all connections."""
+        logger.info("Shutting down WebSocket server...")
+        
+        # Close all active sessions
+        for session_id in list(self.sessions.keys()):
+            await self.close_session(session_id)
+        
+        logger.info("WebSocket server shutdown complete") 

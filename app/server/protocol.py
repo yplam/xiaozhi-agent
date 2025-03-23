@@ -22,6 +22,7 @@ class MessageType(str, Enum):
     IOT = "iot"
     LLM = "llm"
     TEXT_RESPONSE = "text_response"
+    FUNCTION_CALL = "function_call"  # Added for compatibility with xiaozhi-server
 
 
 class ListenState(str, Enum):
@@ -45,6 +46,14 @@ class TTSState(str, Enum):
     SENTENCE_START = "sentence_start"
 
 
+class AbortReason(str, Enum):
+    """Reasons for abort messages."""
+    NONE = "none"
+    USER_REQUESTED = "user_requested"
+    WAKE_WORD_DETECTED = "wake_word_detected"
+    TIMEOUT = "timeout"
+
+
 class ProtocolMessage:
     """Base class for all protocol messages."""
     
@@ -60,8 +69,10 @@ class ProtocolMessage:
             "type": MessageType.HELLO,
             "transport": "websocket",
             "audio_params": {
+                "format": "opus",
                 "sample_rate": get_audio_params()["sample_rate"]
-            }
+            },
+            "protocol_version": WS_PROTOCOL_VERSION
         }
     
     @staticmethod
@@ -176,6 +187,70 @@ class ProtocolMessage:
             "type": MessageType.TEXT_RESPONSE,
             "text": text
         }
+    
+    @staticmethod
+    def create_function_call_response_message(function_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a function call response message.
+        
+        Args:
+            function_name: The name of the function to call
+            arguments: The function arguments
+            
+        Returns:
+            A function call message dictionary
+        """
+        return {
+            "type": MessageType.FUNCTION_CALL,
+            "function": function_name,
+            "arguments": arguments
+        }
+    
+    @staticmethod
+    def create_listen_start_response(mode: str = ListenMode.AUTO) -> Dict[str, Any]:
+        """
+        Create a listen start response message.
+        
+        Args:
+            mode: The listening mode
+            
+        Returns:
+            A listen start response message dictionary
+        """
+        return {
+            "type": MessageType.LISTEN,
+            "state": ListenState.START,
+            "mode": mode
+        }
+    
+    @staticmethod
+    def create_listen_stop_response() -> Dict[str, Any]:
+        """
+        Create a listen stop response message.
+        
+        Returns:
+            A listen stop response message dictionary
+        """
+        return {
+            "type": MessageType.LISTEN,
+            "state": ListenState.STOP
+        }
+    
+    @staticmethod
+    def create_abort_response(reason: str = AbortReason.NONE) -> Dict[str, Any]:
+        """
+        Create an abort response message.
+        
+        Args:
+            reason: The abort reason
+            
+        Returns:
+            An abort response message dictionary
+        """
+        return {
+            "type": MessageType.ABORT,
+            "reason": reason
+        }
 
 
 class ProtocolParser:
@@ -222,7 +297,7 @@ class ProtocolParser:
         """
         return (
             message.get("type") == MessageType.HELLO and
-            message.get("transport") == "websocket" and
+            "transport" in message and
             "audio_params" in message
         )
     
@@ -268,7 +343,7 @@ class ProtocolParser:
             message: The message to check
             
         Returns:
-            True if the message is a wake word message, False otherwise
+            True if the message is a wake word detection message, False otherwise
         """
         return (
             message.get("type") == MessageType.LISTEN and
@@ -302,5 +377,22 @@ class ProtocolParser:
         """
         return (
             message.get("type") == MessageType.IOT and
-            ("descriptors" in message or "states" in message)
+            ("descriptors" in message or "states" in message or "commands" in message)
+        )
+    
+    @staticmethod
+    def is_function_call_message(message: Dict[str, Any]) -> bool:
+        """
+        Check if a message is a function call message.
+        
+        Args:
+            message: The message to check
+            
+        Returns:
+            True if the message is a function call message, False otherwise
+        """
+        return (
+            message.get("type") == MessageType.FUNCTION_CALL and
+            "function" in message and
+            "arguments" in message
         ) 
